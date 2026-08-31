@@ -199,6 +199,50 @@ function formatDeg(value) {
   return (n >= 0 ? "+" : "") + n.toFixed(1) + "°"
 }
 
+function wrapDelta(from, to) {
+  var a = Number(from)
+  var b = Number(to)
+  if (!isFinite(a) || !isFinite(b)) return null
+  var d = b - a
+  while (d > 180) d -= 360
+  while (d < -180) d += 360
+  return d
+}
+
+function azError(status) {
+  if (!status) return null
+  return wrapDelta(status.azDeg, status.desiredAzDeg)
+}
+
+function elError(status) {
+  if (!status) return null
+  var a = Number(status.elDeg)
+  var b = Number(status.desiredElDeg)
+  if (!isFinite(a) || !isFinite(b)) return null
+  return b - a
+}
+
+function alignmentOffDeg(status) {
+  var az = azError(status)
+  var el = elError(status)
+  if (az === null && el === null) return null
+  var aa = az === null ? 0 : Math.abs(az)
+  var ee = el === null ? 0 : Math.abs(el)
+  return Math.max(aa, ee)
+}
+
+function alignmentOk(status) {
+  var off = alignmentOffDeg(status)
+  return off !== null && off < 5
+}
+
+function alignmentLabel(status) {
+  var off = alignmentOffDeg(status)
+  if (off === null) return "—"
+  if (off < 0.5) return "Aligned"
+  return off.toFixed(1) + "° off"
+}
+
 function formatHour(minute) {
   var h = Math.floor(Number(minute) / 60)
   if (!isFinite(h)) return ""
@@ -362,6 +406,12 @@ if (typeof module !== "undefined") {
     formatUptime: formatUptime,
     formatPct: formatPct,
     formatDeg: formatDeg,
+    wrapDelta: wrapDelta,
+    azError: azError,
+    elError: elError,
+    alignmentOffDeg: alignmentOffDeg,
+    alignmentOk: alignmentOk,
+    alignmentLabel: alignmentLabel,
     formatHour: formatHour,
     icon: icon,
     tone: tone,

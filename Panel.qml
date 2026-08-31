@@ -371,12 +371,12 @@ Panel {
               fontFamily: root.fontFamily
             }
 
+            InfoRow { label: "Alignment"; value: Model.alignmentLabel(root.status) }
             InfoRow { label: "Drops today"; value: Model.formatDuration(root.day ? root.day.dropSeconds : 0) }
             InfoRow { label: "Hardware"; value: root.status ? (root.status.hardware || "—") : "—" }
             InfoRow { label: "Firmware"; value: root.status ? (root.status.software || "—") : "—" }
             InfoRow { label: "Uptime"; value: root.status ? Model.formatUptime(root.status.uptimeS) : "—" }
             InfoRow { label: "GPS"; value: root.status ? ((root.status.gpsValid ? "Lock" : "No lock") + " · " + (root.status.gpsSats || 0) + " sats") : "—" }
-            InfoRow { label: "Pointing"; value: root.status ? ("az " + Model.formatDeg(root.status.azDeg) + "  el " + Model.formatDeg(root.status.elDeg)) : "—" }
             InfoRow { label: "Ethernet"; value: root.status && root.status.ethMbps ? (root.status.ethMbps + " Mbps") : "—" }
             InfoRow { label: "SNR"; value: root.status && root.status.snrAboveNoiseFloor === false ? "Below noise floor" : "Above noise floor" }
             InfoRow { label: "Host"; value: root.host || root.dishHost }

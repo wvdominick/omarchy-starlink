@@ -548,8 +548,12 @@ def parse_status(msg: dict) -> dict:
     up = sane_float(f32(msg, 1008), 0, 1e12)
     drop = sane_float(f32(msg, 1003), 0, 1)
     fraction = sane_float(f32(obst, 1), 0, 1)
-    az = sane_float(f32(msg, 1011), -360, 360)
-    el = sane_float(f32(msg, 1012), -90, 90)
+    az = sane_float(f32(align, 4), -360, 360)
+    if az is None:
+        az = sane_float(f32(msg, 1011), -360, 360)
+    el = sane_float(f32(align, 5), -90, 90)
+    if el is None:
+        el = sane_float(f32(msg, 1012), -90, 90)
     tilt = sane_float(f32(align, 3), -180, 180)
 
     status = {
