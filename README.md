@@ -3,6 +3,8 @@
 Unofficial Omarchy bar widget for a local Starlink dish. It is not affiliated
 with SpaceX or Starlink.
 
+![Starlink bar chip and details panel](screenshot.png)
+
 The chip shows **latency**, **ping success**, and **last-minute active
 download**. Left-click opens today's charts, obstruction map, and dish
 details.
