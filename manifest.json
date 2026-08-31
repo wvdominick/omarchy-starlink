@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "id": "wvdominick.starlink",
+  "name": "Starlink",
+  "version": "1.2.0",
+  "author": "wvdominick",
+  "license": "MIT",
+  "description": "Starlink latency, ping success, and last-minute download on the Omarchy bar, with a day chart in the panel.",
+  "kinds": ["bar-widget"],
+  "entryPoints": {
+    "barWidget": "BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "Starlink",
+    "description": "Latency, ping success, and last-minute download from the local dish log.",
+    "category": "Network",
+    "allowMultiple": false,
+    "defaultSection": "right",
+    "defaults": {
+      "refreshIntervalSec": 5,
+      "dishHost": "192.168.100.1:9200"
+    },
+    "schema": [
+      {
+        "key": "refreshIntervalSec",
+        "type": "integer",
+        "label": "Refresh interval (seconds)",
+        "min": 2,
+        "max": 60,
+        "step": 1,
+        "defaultValue": 5
+      },
+      {
+        "key": "dishHost",
+        "type": "string",
+        "label": "Dish host:port",
+        "defaultValue": "192.168.100.1:9200"
+      }
+    ]
+  }
+}
