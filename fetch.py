@@ -681,7 +681,12 @@ def meta_set(conn: sqlite3.Connection, key: str, value: object) -> None:
     conn.execute("INSERT OR REPLACE INTO meta(key, value) VALUES (?, ?)", (key, str(value)))
 
 
-def ingest_samples(conn: sqlite3.Connection, hist: dict, now: datetime) -> int:
+def ingest_samples(
+    conn: sqlite3.Connection,
+    hist: dict,
+    now: datetime,
+    bootcount: int | None = None,
+) -> int:
     down = hist.get("down") or []
     ping = hist.get("ping") or []
     up = hist.get("up") or []
@@ -691,6 +696,15 @@ def ingest_samples(conn: sqlite3.Connection, hist: dict, now: datetime) -> int:
     if n == 0 or current <= 0:
         return 0
     last = int(meta_get(conn, "lastDishIndex", "0") or 0)
+    prev_boot = meta_get(conn, "bootcount")
+    # Dish reboots reset the history ring counter. Keep ingesting or we stall
+    # until current catches the pre-reboot index (days of silence).
+    if current < last or (
+        bootcount is not None and prev_boot is not None and str(bootcount) != str(prev_boot)
+    ):
+        last = 0
+    if bootcount is not None:
+        meta_set(conn, "bootcount", bootcount)
     start_index = current - n + 1
     now_ts = int(now.timestamp())
     added = 0
@@ -1053,7 +1067,7 @@ def main() -> int:
         try:
             conn = db_connect()
             if hist:
-                ingest_samples(conn, hist, now)
+                ingest_samples(conn, hist, now, bootcount=status.get("bootcount"))
             minute, day = analyze(conn, now, status.get("pingMs"))
             report["minute"] = minute
             report["day"] = day
