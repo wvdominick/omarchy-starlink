@@ -387,6 +387,46 @@ function hourTicks(start, end) {
   return ticks
 }
 
+// Omarchy installs plugins as git checkouts and does not pull them later.
+// The panel checks for itself: fetch, then compare HEAD to FETCH_HEAD, same
+// as `omarchy plugin update`. Exit 10 means an update is waiting.
+function pluginUpdateCheckCommand(pluginId, throttleHours) {
+  var hours = Number(throttleHours || 6)
+  return [
+    "sh",
+    "-c",
+    'set -e; ' +
+      'dir="$HOME/.config/omarchy/plugins/$1"; ' +
+      '[ -d "$dir/.git" ] || exit 3; ' +
+      'runtime="${XDG_RUNTIME_DIR:-}"; ' +
+      '[ -n "$runtime" ] && [ -d "$runtime" ] || exit 6; ' +
+      '[ "$(stat -c "%u:%a" -- "$runtime" 2>/dev/null)" = "$(id -u):700" ] || exit 6; ' +
+      'stamp="$runtime/$1.update-check"; ' +
+      'if [ -z "$(find "$stamp" -newermt "-$2 hours" 2>/dev/null)" ]; then ' +
+      'git -C "$dir" fetch --quiet origin HEAD 2>/dev/null || exit 4; ' +
+      '[ ! -L "$stamp" ] || exit 6; ' +
+      '(umask 077; touch --no-dereference -- "$stamp") || exit 6; fi; ' +
+      'head=$(git -C "$dir" rev-parse HEAD 2>/dev/null) || exit 5; ' +
+      'remote=$(git -C "$dir" rev-parse FETCH_HEAD 2>/dev/null) || exit 5; ' +
+      '[ "$head" = "$remote" ] || exit 10',
+    "sh",
+    String(pluginId || ""),
+    String(hours)
+  ]
+}
+
+function pluginUpdateCommand(pluginId) {
+  return ["omarchy", "plugin", "update", String(pluginId || ""), "--yes"]
+}
+
+function pluginUpdated(output) {
+  return /^Updated /m.test(String(output || ""))
+}
+
+function shellRestartCommand() {
+  return ["sh", "-c", "setsid -f omarchy-restart-shell >/dev/null 2>&1"]
+}
+
 if (typeof module !== "undefined") {
   module.exports = {
     parseReport: parseReport,
@@ -426,6 +466,10 @@ if (typeof module !== "undefined") {
     seriesExtent: seriesExtent,
     minuteOfDay: minuteOfDay,
     dayDomain: dayDomain,
-    hourTicks: hourTicks
+    hourTicks: hourTicks,
+    pluginUpdateCheckCommand: pluginUpdateCheckCommand,
+    pluginUpdateCommand: pluginUpdateCommand,
+    pluginUpdated: pluginUpdated,
+    shellRestartCommand: shellRestartCommand
   }
 }

@@ -27,6 +27,9 @@ Panel {
   property var history: null
   property var map: null
   property int sparkEpoch: 0
+  property bool pluginUpdateAvailable: false
+  property bool pluginUpdating: false
+  property string pluginUpdateError: ""
 
   readonly property string backendScript: {
     var path = String(Qt.resolvedUrl("."))
@@ -140,6 +143,20 @@ Panel {
     Quickshell.execDetached(["wl-copy", String(value)])
   }
 
+  function checkPluginUpdate() {
+    if (pluginUpdateProcess.running || root.pluginUpdating) return
+    pluginUpdateProcess.command = Model.pluginUpdateCheckCommand(root.moduleName, 6)
+    pluginUpdateProcess.running = true
+  }
+
+  function updatePlugin() {
+    if (pluginUpdateRunProcess.running || root.pluginUpdating) return
+    root.pluginUpdateError = ""
+    root.pluginUpdating = true
+    pluginUpdateRunProcess.command = Model.pluginUpdateCommand(root.moduleName)
+    pluginUpdateRunProcess.running = true
+  }
+
   function cssColor(c, alpha) {
     if (!c) return "transparent"
     var a = alpha === undefined ? 1 : alpha
@@ -149,6 +166,7 @@ Panel {
   onOpenedChanged: {
     if (opened) {
       root.refreshDetails()
+      root.checkPluginUpdate()
       root.paintSky()
       Qt.callLater(root.paintSky)
     }
@@ -187,6 +205,34 @@ Panel {
       waitForEnd: true
       onStreamFinished: root.applyReport(text)
     }
+  }
+
+  Process {
+    id: pluginUpdateProcess
+    onExited: function(exitCode) {
+      root.pluginUpdateAvailable = exitCode === 10
+    }
+  }
+
+  Process {
+    id: pluginUpdateRunProcess
+    stdout: StdioCollector { id: pluginUpdateOutput; waitForEnd: true }
+    onExited: function(exitCode) {
+      root.pluginUpdating = false
+      if (exitCode !== 0) {
+        root.pluginUpdateError = "Update did not finish. Run `omarchy plugin update " + root.moduleName + "` to see why."
+        return
+      }
+      root.pluginUpdateAvailable = false
+      if (Model.pluginUpdated(pluginUpdateOutput.text)) {
+        shellRestartProcess.command = Model.shellRestartCommand()
+        shellRestartProcess.startDetached()
+      }
+    }
+  }
+
+  Process {
+    id: shellRestartProcess
   }
 
   Timer {
@@ -384,10 +430,36 @@ Panel {
             Text {
               visible: !!(root.status && root.status.alerts && root.status.alerts.length)
               width: parent.width
+              textFormat: Text.PlainText
               text: root.status && root.status.alerts ? root.status.alerts.join(" · ") : ""
               color: root.urgent
               font.family: root.fontFamily
               font.pixelSize: Style.font.bodySmall
+              wrapMode: Text.WordWrap
+            }
+
+            Button {
+              visible: root.pluginUpdateAvailable || root.pluginUpdating || root.pluginUpdateError !== ""
+              width: parent.width
+              text: root.pluginUpdating ? "Updating this panel…" : (root.pluginUpdateError !== "" ? "Retry update" : "Update this panel")
+              tooltipText: root.pluginUpdating
+                ? "Pulling the new version"
+                : (root.pluginUpdateError !== "" ? root.pluginUpdateError : "A newer version is available")
+              foreground: root.foreground
+              fontFamily: root.fontFamily
+              bordered: true
+              enabled: !root.pluginUpdating
+              onClicked: root.updatePlugin()
+            }
+
+            Text {
+              visible: root.pluginUpdateError !== ""
+              width: parent.width
+              textFormat: Text.PlainText
+              text: root.pluginUpdateError
+              color: root.urgent
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.caption
               wrapMode: Text.WordWrap
             }
           }
@@ -417,6 +489,7 @@ Panel {
           anchors.horizontalCenter: parent.horizontalCenter
           anchors.bottom: parent.bottom
           anchors.bottomMargin: Style.space(4)
+          textFormat: Text.PlainText
           text: "More stats  ↓"
           color: root.dim
           font.family: root.fontFamily
@@ -446,6 +519,7 @@ Panel {
       spacing: Style.space(2)
 
       Text {
+        textFormat: Text.PlainText
         text: tile.label
         color: root.dim
         font.family: root.fontFamily
@@ -456,6 +530,7 @@ Panel {
 
       Text {
         width: parent.width
+        textFormat: Text.PlainText
         text: tile.value
         color: tile.valueColor
         font.family: root.fontFamily
@@ -466,6 +541,7 @@ Panel {
 
       Text {
         width: parent.width
+        textFormat: Text.PlainText
         text: tile.detail !== "" ? tile.detail : " "
         color: root.dim
         opacity: tile.detail !== "" ? 1 : 0
@@ -486,6 +562,7 @@ Panel {
     Text {
       anchors.left: parent.left
       anchors.verticalCenter: parent.verticalCenter
+      textFormat: Text.PlainText
       text: row.label
       color: root.dim
       font.family: root.fontFamily
@@ -497,6 +574,7 @@ Panel {
       anchors.right: parent.right
       anchors.verticalCenter: parent.verticalCenter
       width: Math.min(implicitWidth, parent.width * 0.68)
+      textFormat: Text.PlainText
       text: row.value
       color: root.foreground
       font.family: root.fontFamily
@@ -538,6 +616,7 @@ Panel {
       id: chartTitle
       anchors.left: parent.left
       anchors.top: parent.top
+      textFormat: Text.PlainText
       text: chart.title + (chart.unit ? "  ·  " + chart.unit : "")
       color: root.dim
       font.family: root.fontFamily
@@ -643,6 +722,7 @@ Panel {
             if (span <= 0) return 0
             return ((modelData - chart.domain.start) / span) * axis.width - implicitWidth / 2
           }
+          textFormat: Text.PlainText
           text: Model.formatHour(modelData)
           color: root.dim
           font.family: root.fontFamily

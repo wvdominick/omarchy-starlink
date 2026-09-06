@@ -136,6 +136,7 @@ BarWidget {
 
       Text {
         anchors.verticalCenter: parent.verticalCenter
+        textFormat: Text.PlainText
         text: root.chipText
         color: root.chipColor
         font.family: button.fontFamily

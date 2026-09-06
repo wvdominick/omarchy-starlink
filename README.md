@@ -40,6 +40,9 @@ omarchy bar move wvdominick.starlink --section right
 - Right-click sends a desktop notification
 - `R` inside the panel refreshes
 - Escape closes the panel
+- If a newer version is on GitHub, **Update this panel** appears at the
+  bottom. It runs `omarchy plugin update wvdominick.starlink` and restarts
+  the shell so the new code loads.
 
 Quiet hours on the day chart stay blank on purpose.
 
@@ -60,6 +63,17 @@ to `dishy.starlink.com:9200` if the default address does not answer.
 - Dish reachable at `192.168.100.1:9200` on the LAN
 
 No gRPC Python packages are needed.
+
+## Update
+
+Open the panel. If GitHub is ahead of the installed checkout, **Update this
+panel** appears under the dish details.
+
+From a terminal:
+
+```sh
+omarchy plugin update wvdominick.starlink
+```
 
 ## Remove
 

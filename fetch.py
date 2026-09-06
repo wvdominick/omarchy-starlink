@@ -15,6 +15,7 @@ import sqlite3
 import struct
 import subprocess
 import sys
+import threading
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
@@ -30,6 +31,12 @@ IDLE_BPS = 1_000_000
 MINUTE_ACTIVE_S = 10
 BUCKET_ACTIVE_S = 8
 SPARK_ACTIVE_S = 4
+# Cap dish payloads so a misbehaving endpoint cannot unbounded-buffer us.
+MAX_RESPONSE_BYTES = 8 * 1024 * 1024
+MAX_HISTORY_SAMPLES = 86_400  # 24 hours of 1 Hz samples
+MAX_PACKED_F32 = 200_000
+MAX_MAP_DIM = 256
+MAX_STRING_CHARS = 160
 
 # SpaceX.API.Device.Request oneof field numbers
 REQ_GET_STATUS = 1004
@@ -298,6 +305,8 @@ def decode_message(buf: bytes, schema: dict) -> dict:
                 val = blob.decode("utf-8", "replace")
             elif spec == "packed_f32":
                 count = len(blob) // 4
+                if count > MAX_PACKED_F32:
+                    raise RuntimeError("packed dish series too large")
                 val = list(struct.unpack("<" + "f" * count, blob[: count * 4])) if count else []
             else:
                 val = blob
@@ -329,18 +338,31 @@ def parse_grpc_status(headers: str) -> tuple[int, str]:
             except ValueError:
                 status = 2
         elif key.strip().lower() == "grpc-message":
-            message = value.strip()
+            message = value.strip()[:MAX_STRING_CHARS]
     return status, message
 
 
+def _read_capped(stream, limit: int) -> bytes:
+    buf = bytearray()
+    while True:
+        chunk = stream.read(min(65536, max(1, limit - len(buf) + 1)))
+        if not chunk:
+            return bytes(buf)
+        if len(buf) + len(chunk) > limit:
+            raise RuntimeError("dish response too large")
+        buf.extend(chunk)
+
+
 def curl_handle(host: str, payload: bytes, timeout: float) -> tuple[str, bytes]:
-    proc = subprocess.run(
+    proc = subprocess.Popen(
         [
             CURL,
             "-sS",
             "--http2-prior-knowledge",
             "--max-time",
             f"{timeout:.1f}",
+            "--max-filesize",
+            str(MAX_RESPONSE_BYTES),
             "-D",
             "-",
             "-o",
@@ -355,14 +377,47 @@ def curl_handle(host: str, payload: bytes, timeout: float) -> tuple[str, bytes]:
             "@-",
             f"http://{host}/SpaceX.API.Device.Device/Handle",
         ],
-        input=payload,
-        capture_output=True,
-        timeout=timeout + 1.5,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
     )
+    err = b""
+
+    def drain_err() -> None:
+        nonlocal err
+        try:
+            err = proc.stderr.read(32 * 1024) or b""
+        except Exception:
+            err = b""
+
+    reader = threading.Thread(target=drain_err, daemon=True)
+    reader.start()
+    try:
+        if proc.stdin is None or proc.stdout is None:
+            raise RuntimeError("curl pipes missing")
+        proc.stdin.write(payload)
+        proc.stdin.close()
+        raw = _read_capped(proc.stdout, MAX_RESPONSE_BYTES)
+        proc.wait(timeout=timeout + 1.5)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        proc.wait()
+        raise RuntimeError("dish request timed out") from None
+    except Exception:
+        proc.kill()
+        try:
+            proc.wait(timeout=1)
+        except Exception:
+            pass
+        raise
+    finally:
+        reader.join(timeout=0.5)
+
+    if proc.returncode == 63:
+        raise RuntimeError("dish response too large")
     if proc.returncode != 0:
-        err = (proc.stderr or b"").decode("utf-8", "replace").strip() or f"curl exit {proc.returncode}"
-        raise RuntimeError(err)
-    raw = proc.stdout
+        message = err.decode("utf-8", "replace").strip() or f"curl exit {proc.returncode}"
+        raise RuntimeError(message)
     split = raw.find(b"\r\n\r\n")
     if split < 0:
         raise RuntimeError("no HTTP headers in dish response")
@@ -379,6 +434,8 @@ def decode_frame(body: bytes, schema: dict) -> dict:
         raise RuntimeError("empty gRPC frame")
     compressed = body[0]
     length = struct.unpack(">I", body[1:5])[0]
+    if length > MAX_RESPONSE_BYTES:
+        raise RuntimeError("gRPC frame too large")
     msg = body[5 : 5 + length]
     if compressed:
         raise RuntimeError("compressed gRPC frames are not supported")
@@ -414,7 +471,11 @@ def b(msg: dict, field: int) -> bool:
 
 def s(msg: dict, field: int, default: str = "") -> str:
     val = msg.get(field, default)
-    return str(val) if val is not None else default
+    text = str(val) if val is not None else default
+    text = "".join(ch for ch in text if ch.isprintable() or ch in " \t")
+    if len(text) > MAX_STRING_CHARS:
+        return text[:MAX_STRING_CHARS]
+    return text
 
 
 def sane_float(val: float | None, lo: float, hi: float) -> float | None:
@@ -599,14 +660,21 @@ def parse_status(msg: dict) -> dict:
 
 
 def parse_history(msg: dict) -> dict:
+    ping = msg.get(1002) or []
+    drop = msg.get(1001) or []
+    down = msg.get(1003) or []
+    up = msg.get(1004) or []
+    count = max(len(ping), len(down), len(up), len(drop))
+    if count > MAX_HISTORY_SAMPLES:
+        raise RuntimeError("history response too large")
     current = int(msg.get(1) or 0)
-    ping = unwrap_ring(msg.get(1002) or [], current)
-    drop = unwrap_ring(msg.get(1001) or [], current)
-    down = unwrap_ring(msg.get(1003) or [], current)
-    up = unwrap_ring(msg.get(1004) or [], current)
+    ping = unwrap_ring(ping, current)
+    drop = unwrap_ring(drop, current)
+    down = unwrap_ring(down, current)
+    up = unwrap_ring(up, current)
     return {
         "current": current,
-        "count": max(len(ping), len(down), len(up), len(drop)),
+        "count": count,
         "ping": ping,
         "drop": drop,
         "down": down,
@@ -915,7 +983,11 @@ def analyze(conn: sqlite3.Connection, now: datetime, current_ping: float | None)
 def parse_map(msg: dict) -> dict:
     rows = int(msg.get(1) or 0)
     cols = int(msg.get(2) or 0)
+    if rows > MAX_MAP_DIM or cols > MAX_MAP_DIM or rows < 0 or cols < 0:
+        raise RuntimeError("obstruction map too large")
     snr = msg.get(3) or []
+    if rows and cols and len(snr) > rows * cols:
+        snr = snr[: rows * cols]
     rows, cols, snr = downsample_grid(snr, rows, cols, 41)
     return {"rows": rows, "cols": cols, "snr": snr}
 
