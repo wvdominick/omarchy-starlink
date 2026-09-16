@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "wvdominick.starlink",
   "name": "Starlink",
-  "version": "1.3.0",
+  "version": "1.3.1",
   "author": "wvdominick",
   "license": "MIT",
   "description": "Starlink latency, ping success, and last-minute download on the Omarchy bar, with a day chart in the panel.",
