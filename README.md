@@ -80,3 +80,14 @@ omarchy plugin update wvdominick.starlink
 ```sh
 omarchy plugin remove wvdominick.starlink
 ```
+
+## Changelog
+
+### 1.3.1
+
+**Fixed:** Opening the details panel could leave the session unresponsive to pointer and keyboard input after Omarchy **4.0.3**.
+
+Omarchy 4.0.3 introduced PluginBarApi and made `centerHoverRevealSuppressed` read-only for third-party bar widgets (writes must use `setCenterHoverRevealSuppressed()`). Direct assignment throws a QML TypeError and can stall input while the panel is open.
+
+This release calls the setter when available and falls back to property assignment only on older hosts that still allow it.
+
